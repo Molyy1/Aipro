@@ -1,38 +1,64 @@
-const express = require('express');
-const axios = require('axios');
+const express = require("express");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+const sqlite3 = require("sqlite3").verbose();
+const { v4: uuidv4 } = require("uuid");
+
 const app = express();
-const PORT = 3000;
+const port = 3000;
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Your ImgBB API key
-const API_KEY = '874584284ba25a8c99be0ece456f77e8';
+// === Setup SQLite DB ===
+const db = new sqlite3.Database("pastes.db");
+db.run(`
+  CREATE TABLE IF NOT EXISTS pastes (
+    id TEXT PRIMARY KEY,
+    filename TEXT,
+    content TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
-app.get('/imgbb', async (req, res) => {
-    const { image } = req.query;
+// === Upload Endpoint ===
+app.post("/upload", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
 
-    if (!image) {
-        return res.status(400).json({ error: 'Image (base64 or URL) is required in query ?image=' });
+  const id = uuidv4();
+  const filename = req.body.name || `file-${Date.now()}.txt`;
+  const content = req.file.buffer.toString();
+
+  db.run(
+    `INSERT INTO pastes (id, filename, content) VALUES (?, ?, ?)`,
+    [id, filename, content],
+    (err) => {
+      if (err) {
+        console.error("DB error:", err);
+        return res.status(500).json({ success: false, message: "Database error", error: err.message });
+      }
+
+      res.json({
+        success: true,
+        url: `${req.protocol}://${req.get("host")}/raw/${id}`
+      });
     }
-
-    try {
-        const response = await axios.post('https://api.imgbb.com/1/upload', null, {
-            params: {
-                key: API_KEY,
-                image: image,
-            },
-        });
-
-        res.json({
-            success: true,
-            data: response.data.data,
-        });
-    } catch (err) {
-        res.status(500).json({
-            success: false,
-            error: err.message,
-        });
-    }
+  );
 });
 
-app.listen(PORT, () => {
-    console.log(`ImgBB API server running at http://localhost:${PORT}`);
+// === Raw file view endpoint ===
+app.get("/raw/:id", (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT filename, content FROM pastes WHERE id = ?`, [id], (err, row) => {
+    if (err || !row) {
+      return res.status(404).send("File not found.");
+    }
+
+    res.set("Content-Type", "text/plain");
+    res.send(row.content);
+  });
+});
+
+// === Server Start ===
+app.listen(port, () => {
+  console.log(`Pastebin running at http://localhost:${port}`);
 });
