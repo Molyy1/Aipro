@@ -1,49 +1,46 @@
-const express = require("express");
-const fetch = require("node-fetch");
-const cors = require("cors");
+const express = require('express');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Allow CORS
-app.use(cors());
+// Your OpenRouter API Key
+const OPENROUTER_API_KEY = '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';
 
-// AI Endpoint
-app.get("/aibot", async (req, res) => {
-  const prompt = req.query.prompt;
+app.get('/aibot', async (req, res) => {
+    const prompt = req.query.prompt;
 
-  if (!prompt) {
-    return res.status(400).json({ error: "Missing 'prompt' parameter" });
-  }
+    if (!prompt) {
+        return res.status(400).json({ error: 'Missing prompt parameter' });
+    }
 
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer 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",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
+    try {
+        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+            model: 'openai/gpt-3.5-turbo',  // You can change this model if needed
+            messages: [
+                {
+                    role: 'user',
+                    content: prompt
+                }
+            ]
+        }, {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
 
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || "No reply received.";
-
-    res.json({ success: true, response: reply });
-  } catch (error) {
-    console.error("AI Error:", error);
-    res.status(500).json({ success: false, error: "Failed to get AI response" });
-  }
-});
-
-// Root welcome
-app.get("/", (req, res) => {
-  res.send("AI Endpoint is working. Use /aibot?prompt=your_message");
+        res.json(response.data);
+    } catch (error) {
+        console.error('OpenRouter API error:', error.message);
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else {
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}/aibot?prompt=hello`);
 });
