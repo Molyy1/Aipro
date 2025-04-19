@@ -1,64 +1,49 @@
 const express = require("express");
-const multer = require("multer");
-const fs = require("fs");
-const path = require("path");
-const sqlite3 = require("sqlite3").verbose();
-const { v4: uuidv4 } = require("uuid");
+const fetch = require("node-fetch");
+const cors = require("cors");
 
 const app = express();
-const port = 3000;
-const upload = multer({ storage: multer.memoryStorage() });
+const PORT = process.env.PORT || 3000;
 
-// === Setup SQLite DB ===
-const db = new sqlite3.Database("pastes.db");
-db.run(`
-  CREATE TABLE IF NOT EXISTS pastes (
-    id TEXT PRIMARY KEY,
-    filename TEXT,
-    content TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Allow CORS
+app.use(cors());
 
-// === Upload Endpoint ===
-app.post("/upload", upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+// AI Endpoint
+app.get("/aibot", async (req, res) => {
+  const prompt = req.query.prompt;
 
-  const id = uuidv4();
-  const filename = req.body.name || `file-${Date.now()}.txt`;
-  const content = req.file.buffer.toString();
+  if (!prompt) {
+    return res.status(400).json({ error: "Missing 'prompt' parameter" });
+  }
 
-  db.run(
-    `INSERT INTO pastes (id, filename, content) VALUES (?, ?, ?)`,
-    [id, filename, content],
-    (err) => {
-      if (err) {
-        console.error("DB error:", err);
-        return res.status(500).json({ success: false, message: "Database error", error: err.message });
-      }
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer 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",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-3.5-turbo",
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
 
-      res.json({
-        success: true,
-        url: `${req.protocol}://${req.get("host")}/raw/${id}`
-      });
-    }
-  );
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content || "No reply received.";
+
+    res.json({ success: true, response: reply });
+  } catch (error) {
+    console.error("AI Error:", error);
+    res.status(500).json({ success: false, error: "Failed to get AI response" });
+  }
 });
 
-// === Raw file view endpoint ===
-app.get("/raw/:id", (req, res) => {
-  const id = req.params.id;
-  db.get(`SELECT filename, content FROM pastes WHERE id = ?`, [id], (err, row) => {
-    if (err || !row) {
-      return res.status(404).send("File not found.");
-    }
-
-    res.set("Content-Type", "text/plain");
-    res.send(row.content);
-  });
+// Root welcome
+app.get("/", (req, res) => {
+  res.send("AI Endpoint is working. Use /aibot?prompt=your_message");
 });
 
-// === Server Start ===
-app.listen(port, () => {
-  console.log(`Pastebin running at http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
 });
